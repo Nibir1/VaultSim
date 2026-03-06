@@ -1,0 +1,43 @@
+# Purpose: Automated CI/CD testing pipeline for Go and Python microservices
+# Author: Nahasat Nibir (Lead Cloud Architect)
+
+name: VaultSim Enterprise CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test-go:
+    name: Test Go Gateway
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go 1.23
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+    - name: Run Go Tests
+      working-directory: ./gateway
+      run: go test -v ./...
+
+  test-python:
+    name: Test Python AI Service
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: "latest"
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Run Pytest via uv
+      working-directory: ./ai_service
+      run: |
+        uv sync
+        uv run pytest tests/
