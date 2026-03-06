@@ -38,6 +38,9 @@ jobs:
         python-version: '3.11'
     - name: Run Pytest via uv
       working-directory: ./ai_service
+      env:
+        # Provide a dummy key to satisfy Pydantic's strict validation during CI imports
+        OPENAI_API_KEY: "sk-mock-key-for-ci-pipeline"
       run: |
         uv sync
         uv run pytest tests/
