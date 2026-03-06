@@ -8,8 +8,9 @@ import { ChatWindow } from './components/ChatWindow';
 import { ScoreMeter } from './components/ScoreMeter';
 import { useWebSocket } from './hooks/useWebSocket';
 
-// Uses the .env value we defined in Phase 1
-const WS_URL = import.meta.env.VITE_GATEWAY_WS_URL || 'ws://localhost:8080/ws/';
+// Uses the .env value, ensuring a trailing slash to prevent Gin 301 redirects
+let WS_URL = import.meta.env.VITE_GATEWAY_WS_URL || 'ws://localhost:8080/ws/';
+if (!WS_URL.endsWith('/')) WS_URL += '/';
 
 const App: React.FC = () => {
     const [activeSession, setActiveSession] = useState<string | null>(null);

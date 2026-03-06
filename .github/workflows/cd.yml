@@ -1,0 +1,46 @@
+# Purpose: Automated Deployment Pipeline for Docker images to AWS ECR
+# Author: Nahasat Nibir (Lead Cloud Architect)
+# Date: 2026-03-06
+
+name: VaultSim Enterprise CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    # Wait for CI tests to pass before deploying
+    needs: [] # In production, link this to the CI workflow completion
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    # Go Gateway
+    - name: Build Gateway Image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./gateway
+        push: false # Set to true when AWS credentials are added
+        tags: vaultsim-gateway:latest
+
+    # Python AI Service
+    - name: Build AI Service Image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./ai_service
+        push: false
+        tags: vaultsim-ai-service:latest
+
+    # React Web UI
+    - name: Build Web Image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./web
+        push: false
+        tags: vaultsim-web:latest
