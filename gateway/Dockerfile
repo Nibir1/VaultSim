@@ -5,7 +5,7 @@
 # Date: 2026-03-06
 
 # Stage 1: Build
-FROM golang:1.23-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /app
 # Install git for downloading dependencies
 RUN apk add --no-cache git
