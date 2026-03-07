@@ -1,4 +1,4 @@
-# VaultSim — Event-Driven AI Social Engineering Simulator
+# VaultSim: Event-Driven AI Social Engineering Simulator
 
 > **Ambitious Polyglot Microservices Architecture** built with **Go (Gin)**, **Python (LangChain)**, **gRPC**, and **React (Vite)** — demonstrating expertise in **Asynchronous AI Orchestration, secure system design, and real-time event streaming.**
 
