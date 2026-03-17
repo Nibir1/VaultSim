@@ -213,7 +213,7 @@ make dev
 
 ```
 
-*The UI will instantly be available at `http://localhost:3000`.*
+*The UI will instantly be available at `http://localhost:4500`.*
 
 ---
 
