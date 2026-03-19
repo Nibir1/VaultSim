@@ -1,12 +1,13 @@
 # ai_service/src/db/seed.py
 
-# Purpose: Database seeding script for Healthcare Security Scenarios
+# Purpose: Database seeding and Schema Sync for Healthcare Security Scenarios
 # Author: Nahasat Nibir (Lead Cloud Architect)
 # Date: 2026-03-19
 
 import logging
 from src.db.session import SessionLocal, engine
-from src.db.models import Base, Scenario
+# Explicitly import ALL models so Base.metadata is aware of them for create_all
+from src.db.models import Base, Scenario, GameSession, ChatHistory
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,7 +61,8 @@ SCENARIOS = [
 ]
 
 def seed_db():
-    logger.info("Creating database tables if they don't exist...")
+    logger.info("Synchronizing database schema (Ensuring all tables exist)...")
+    # This will now definitely pick up GameSession and ChatHistory due to the imports above
     Base.metadata.create_all(bind=engine)
     
     db = SessionLocal()
@@ -86,6 +88,7 @@ def seed_db():
     except Exception as e:
         logger.error(f"Error seeding database: {e}")
         db.rollback()
+        raise e # Force container exit if seeding fails
     finally:
         db.close()
 
