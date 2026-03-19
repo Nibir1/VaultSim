@@ -9,7 +9,7 @@ export interface Scenario {
     id: string;
     title: string;
     description: string;
-    difficulty: 'Easy' | 'Medium' | 'Hard';
+    difficulty: 'Case 1' | 'Case 2' | 'Case 3';
     // Added to render the empty UI checkboxes before they are discovered
     requiredClues: string[];
 }
