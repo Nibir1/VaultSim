@@ -1,9 +1,8 @@
 // gateway/internal/handler/websocket.go
 
-// Purpose: WebSocket handler bridging React clients to the gRPC AI Service with State Management
+// Purpose: Robust WebSocket handler with gRPC session validation and state management
 // Author: Nahasat Nibir (Lead Cloud Architect)
 // Date: 2026-03-19
-// Dependencies: gin, gorilla/websocket, context, time, io, vaultsim/gateway/internal/rpc/pb
 
 package handler
 
@@ -30,18 +29,13 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-// ChatMessage represents the JSON payload from the React frontend
 type ChatMessage struct {
 	SessionID  string `json:"session_id"`
-	ScenarioID string `json:"scenario_id"` // Added to pass the selected healthcare scenario to Python
+	ScenarioID string `json:"scenario_id"`
 	Message    string `json:"message"`
 }
 
-// HandleWebSocket upgrades the HTTP connection, manages Redis state, and enters the message loop.
-// Args: c (*gin.Context), aiClient (*rpc.AIClient), redisStore (*storage.RedisStore), rateLimit (int)
-// Returns: none (hijacks connection)
-// Raises: Logs errors and closes connection on failure
-// Complexity: O(1) State Tracking, O(N) per session messages
+// HandleWebSocket upgrades connection and ensures DB session exists before chat loops
 func HandleWebSocket(c *gin.Context, aiClient *rpc.AIClient, redisStore *storage.RedisStore, rateLimit int) {
 	userID := c.MustGet("user_id").(string)
 
@@ -52,55 +46,68 @@ func HandleWebSocket(c *gin.Context, aiClient *rpc.AIClient, redisStore *storage
 	}
 	defer conn.Close()
 
-	// Track which sessions have had their Redis TTL initialized during this connection
+	// Track initialized sessions to avoid redundant DB/Redis hits
 	initializedSessions := make(map[string]bool)
 
 	for {
-		// 1. Read message from React Client
 		var msg ChatMessage
 		if err := conn.ReadJSON(&msg); err != nil {
-			log.Printf("WebSocket connection closed or read error for user %s: %v", userID, err)
+			log.Printf("WebSocket closed or read error for user %s: %v", userID, err)
 			break
 		}
 
 		ctx := context.Background()
 
-		// 2. Enforce Rate Limit via Redis
+		// 1. Enforce Rate Limit
 		if err := redisStore.CheckRateLimit(ctx, userID, rateLimit, time.Minute); err != nil {
 			conn.WriteJSON(gin.H{"error": "Rate limit exceeded. Slow down."})
 			continue
 		}
 
-		// 3. Initialize Game Session TTL if this is the first message for this session ID
+		// 2. CRITICAL FIX: Ensure Session exists in Postgres via ValidateSession
+		// This prevents the 'NoneType' error on the Python side
 		if !initializedSessions[msg.SessionID] {
+			valCtx, valCancel := context.WithTimeout(ctx, 5*time.Second)
+			valResp, valErr := aiClient.Engine.ValidateSession(valCtx, &pb.SessionRequest{
+				SessionId:  msg.SessionID,
+				ScenarioId: msg.ScenarioID,
+				UserId:     userID,
+			})
+			valCancel()
+
+			if valErr != nil || !valResp.IsValid {
+				log.Printf("Session validation failed for %s: %v", msg.SessionID, valErr)
+				conn.WriteJSON(gin.H{"error": "Failed to initialize game session"})
+				continue
+			}
+
+			// 3. Initialize Redis Turn Counter
 			if err := redisStore.InitGameSession(ctx, msg.SessionID); err != nil {
-				log.Printf("Failed to init game session: %v", err)
+				log.Printf("Failed to init Redis for session %s: %v", msg.SessionID, err)
 			}
 			initializedSessions[msg.SessionID] = true
 		}
 
-		// 4. Atomically Increment the Turn Count
+		// 4. Atomic Turn Increment
 		turnCount, err := redisStore.IncrementTurnCount(ctx, msg.SessionID)
 		if err != nil {
-			log.Printf("Failed to increment turn count for session %s: %v", msg.SessionID, err)
-			conn.WriteJSON(gin.H{"error": "Failed to update game state"})
+			log.Printf("Redis increment error: %v", err)
+			conn.WriteJSON(gin.H{"error": "State sync error"})
 			continue
 		}
 
-		// 5. Scrub PII (Assuming this is defined in your pii.go file)
+		// 5. Send to AI Service
 		sanitizedMsg := ScrubPII(msg.Message)
-
-		// 6. Send the payload and the new state to the Python gRPC Service
 		req := &pb.ChatRequest{
 			SessionId:  msg.SessionID,
 			UserId:     userID,
 			Message:    sanitizedMsg,
 			Timestamp:  time.Now().Unix(),
-			TurnCount:  turnCount,      // The newly incremented Pity Timer state
-			ScenarioId: msg.ScenarioID, // e.g., "wandering_usb"
+			TurnCount:  turnCount,
+			ScenarioId: msg.ScenarioID,
 		}
 
-		grpcCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		grpcCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		stream, err := aiClient.Engine.ProcessChatEvent(grpcCtx, req)
 		if err != nil {
 			log.Printf("gRPC Call failed: %v", err)
@@ -109,21 +116,17 @@ func HandleWebSocket(c *gin.Context, aiClient *rpc.AIClient, redisStore *storage
 			continue
 		}
 
-		// 7. Stream the chunked response back to WebSocket
+		// 6. Stream chunks back to React
 		for {
 			resp, err := stream.Recv()
 			if err == io.EOF {
-				break // End of stream
-			}
-			if err != nil {
-				log.Printf("Error reading from gRPC stream: %v", err)
-				conn.WriteJSON(gin.H{"error": "Stream interrupted"})
 				break
 			}
-
-			// Forward the response chunk (now containing game_status and clues_uncovered) to the frontend
-			if writeErr := conn.WriteJSON(resp); writeErr != nil {
-				log.Printf("Failed to write to WebSocket: %v", writeErr)
+			if err != nil {
+				log.Printf("gRPC stream error: %v", err)
+				break
+			}
+			if err := conn.WriteJSON(resp); err != nil {
 				break
 			}
 		}

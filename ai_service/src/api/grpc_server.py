@@ -1,9 +1,8 @@
 # ai_service/src/api/grpc_server.py
 
-# Purpose: Python gRPC Servicer implementing the Gamified DualAgentEngine contract.
+# Purpose: Python gRPC Servicer with Self-Healing Session Logic
 # Author: Nahasat Nibir (Lead Cloud Architect)
 # Date: 2026-03-19
-# Dependencies: grpc, src.api.game_pb2, src.api.game_pb2_grpc
 
 import sys
 from pathlib import Path
@@ -63,16 +62,32 @@ class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
 
     def ProcessChatEvent(self, request, context):
         """
-        The core game loop. Invokes the Persona, yields the text, then evaluates clues with the Judge.
+        The core game loop. Invokes the Persona, yields the text, then evaluates clues.
+        Includes self-healing logic to handle missing sessions.
         """
         db = SessionLocal()
         try:
-            # 1. Fetch the Game State and Scenario constraints
-            session = db.query(GameSession).filter(GameSession.session_id == request.session_id).first()
+            # 1. Fetch Scenario and Session
             scenario = db.query(Scenario).filter(Scenario.id == request.scenario_id).first()
+            if not scenario:
+                context.abort(grpc.StatusCode.NOT_FOUND, f"Scenario {request.scenario_id} not found.")
+
+            session = db.query(GameSession).filter(GameSession.session_id == request.session_id).first()
             
-            if not session or not scenario:
-                context.abort(grpc.StatusCode.NOT_FOUND, "Session or Scenario not found. Did you call ValidateSession?")
+            # --- SELF-HEALING START ---
+            # If session doesn't exist (due to race condition), create it immediately
+            if not session:
+                logger.info(f"Race condition detected: Session {request.session_id} not found. Creating on-the-fly.")
+                session = GameSession(
+                    session_id=request.session_id, 
+                    user_id=request.user_id, 
+                    scenario_id=request.scenario_id,
+                    turn_count=request.turn_count
+                )
+                db.add(session)
+                db.commit()
+                db.refresh(session)
+            # --- SELF-HEALING END ---
 
             # Update Postgres with the authoritative turn count from Redis (via Go Gateway)
             session.turn_count = request.turn_count
@@ -87,7 +102,7 @@ class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
             )
             db.add(user_msg)
             
-            # 3. Invoke Persona (Passing the Pity Timer turn_count)
+            # 3. Invoke Persona
             try:
                 reply_text = self.persona.generate_response(
                     role=scenario.persona_role,
@@ -111,12 +126,11 @@ class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
             db.add(persona_msg)
             db.commit()
 
-            # Map DB Enum to Protobuf Enum
             pb_status = game_pb2.GameStatus.IN_PROGRESS
             if session.status == GameStatusEnum.VICTORY:
                 pb_status = game_pb2.GameStatus.VICTORY
 
-            # 4. Stream Persona Reply immediately to the UI
+            # 4. Stream Persona Reply immediately
             event_id = str(uuid4())
             yield game_pb2.ChatResponse(
                 event_id=event_id,
@@ -127,7 +141,7 @@ class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
                 turn_count=request.turn_count
             )
 
-            # 5. Invoke Judge Asynchronously
+            # 5. Invoke Judge
             try:
                 evaluation = self.judge.evaluate(
                     user_message=request.message,
@@ -137,18 +151,14 @@ class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
                     turn_count=request.turn_count
                 )
                 
-                # Merge newly discovered clues with existing ones (deduplicated)
                 new_clues = evaluation["newly_uncovered_clues"]
                 if new_clues:
-                    # We reassign the list to trigger SQLAlchemy's JSON update listener
                     session.clues_uncovered = list(set(session.clues_uncovered + new_clues))
                 
-                # Check for Victory Condition
                 if evaluation["game_status"] == "VICTORY":
                     session.status = GameStatusEnum.VICTORY
                     pb_status = game_pb2.GameStatus.VICTORY
 
-                # Optional: Log the Judge's internal reasoning
                 judge_msg = ChatHistory(
                     session_id=request.session_id,
                     user_id=request.user_id,
@@ -159,10 +169,9 @@ class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
                 db.add(judge_msg)
                 db.commit()
 
-                # Stream Judge Evaluation update (updating the UI Checklist)
                 yield game_pb2.ChatResponse(
                     event_id=event_id,
-                    persona_reply="", # Empty because we already streamed it in chunk 1
+                    persona_reply="", 
                     game_status=pb_status,
                     clues_uncovered=session.clues_uncovered,
                     judge_explanation=evaluation["explanation"],
@@ -170,7 +179,6 @@ class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
                 )
             except Exception as e:
                 logger.error(f"Judge Agent failed: {e}")
-                # We don't abort here; the user already successfully received the persona's reply.
                 pass
 
         except Exception as e:
