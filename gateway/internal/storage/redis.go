@@ -1,8 +1,8 @@
 // gateway/internal/storage/redis.go
 
-// Purpose: Redis client initialization and rate-limiting logic
+// Purpose: Redis client initialization, rate-limiting, and game state tracking
 // Author: Nahasat Nibir (Lead Cloud Architect)
-// Date: 2026-03-06
+// Date: 2026-03-19
 // Dependencies: context, github.com/redis/go-redis/v9, fmt, time
 
 package storage
@@ -62,4 +62,36 @@ func (r *RedisStore) CheckRateLimit(ctx context.Context, userID string, limit in
 	}
 
 	return nil
+}
+
+// ==========================================
+// GAME STATE TRACKING (Phase 3)
+// ==========================================
+
+// InitGameSession initializes the turn count for a new session.
+// We set a 24-hour TTL to prevent Redis memory leaks from abandoned browser tabs.
+// Complexity: O(1)
+func (r *RedisStore) InitGameSession(ctx context.Context, sessionID string) error {
+	key := fmt.Sprintf("turn:%s", sessionID)
+	// Set initial turn count to 0 with a 24-hour expiration
+	err := r.client.Set(ctx, key, 0, 24*time.Hour).Err()
+	if err != nil {
+		return fmt.Errorf("failed to initialize session state in redis: %w", err)
+	}
+	return nil
+}
+
+// IncrementTurnCount atomically increments the turn count for a session and returns the new value.
+// This prevents race conditions if a user spams the send button.
+// Complexity: O(1)
+func (r *RedisStore) IncrementTurnCount(ctx context.Context, sessionID string) (int32, error) {
+	key := fmt.Sprintf("turn:%s", sessionID)
+
+	val, err := r.client.Incr(ctx, key).Result()
+	if err != nil {
+		return 0, fmt.Errorf("failed to increment turn count in redis: %w", err)
+	}
+
+	// Redis Incr returns an int64, our gRPC contract expects int32
+	return int32(val), nil
 }
