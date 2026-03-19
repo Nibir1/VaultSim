@@ -53,7 +53,7 @@ class DualAgentEngineServicer(object):
 
     def ProcessChatEvent(self, request, context):
         """Streams the user's chat event to the Python AI service and returns the Persona's response
-        along with any asynchronous score updates from the Judge agent.
+        along with any asynchronous clue updates from the Judge agent.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

@@ -1,8 +1,8 @@
 # Purpose: Unified Developer Experience & DevOps interface
 # Author: Nahasat Nibir (Lead Cloud Architect)
-# Date: 2026-03-06
+# Date: 2026-03-19
 
-.PHONY: up down proto clean dev test-go test-ai test aws-check tf-init tf-plan tf-deploy tf-destroy build-docker
+.PHONY: up down proto clean dev seed test-go test-ai test aws-check tf-init tf-plan tf-deploy tf-destroy build-docker
 
 # Load environment variables (Automatically exports to Terraform as TF_VAR_ if named correctly)
 ifneq (,$(wildcard ./.env))
@@ -44,6 +44,15 @@ clean:
 	rm -rf gateway/internal/rpc/pb/*.pb.go
 	rm -f ai_service/src/api/*_pb2*.py
 	@echo "Clean complete."
+
+# ==========================================
+# DATABASE SETUP & SEEDING
+# ==========================================
+
+seed:
+	@echo "Seeding the database with Gamified Healthcare Scenarios..."
+	cd ai_service && uv run python -m src.db.seed
+	@echo "Database seeding complete."
 
 # ==========================================
 # LOCAL DEVELOPMENT (Single Command Run)

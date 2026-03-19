@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ngame.proto\x12\x0bvaultsim.v1\"V\n\x0b\x43hatRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x0f\n\x07message\x18\x03 \x01(\t\x12\x11\n\ttimestamp\x18\x04 \x01(\x03\"\x80\x01\n\x0c\x43hatResponse\x12\x10\n\x08\x65vent_id\x18\x01 \x01(\t\x12\x15\n\rpersona_reply\x18\x02 \x01(\t\x12\x17\n\x0fsecret_revealed\x18\x03 \x01(\x08\x12\x13\n\x0bscore_delta\x18\x04 \x01(\x05\x12\x19\n\x11judge_explanation\x18\x05 \x01(\t\"J\n\x0eSessionRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x13\n\x0bscenario_id\x18\x03 \x01(\t\"P\n\x0fSessionResponse\x12\x10\n\x08is_valid\x18\x01 \x01(\x08\x12\x15\n\rerror_message\x18\x02 \x01(\t\x12\x14\n\x0cpersona_role\x18\x03 \x01(\t2\xaa\x01\n\x0f\x44ualAgentEngine\x12I\n\x10ProcessChatEvent\x12\x18.vaultsim.v1.ChatRequest\x1a\x19.vaultsim.v1.ChatResponse0\x01\x12L\n\x0fValidateSession\x12\x1b.vaultsim.v1.SessionRequest\x1a\x1c.vaultsim.v1.SessionResponseB\"Z vaultsim/gateway/internal/rpc/pbb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\ngame.proto\x12\x0bvaultsim.v1\"\x7f\n\x0b\x43hatRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x0f\n\x07message\x18\x03 \x01(\t\x12\x11\n\ttimestamp\x18\x04 \x01(\x03\x12\x12\n\nturn_count\x18\x05 \x01(\x05\x12\x13\n\x0bscenario_id\x18\x06 \x01(\t\"\xad\x01\n\x0c\x43hatResponse\x12\x10\n\x08\x65vent_id\x18\x01 \x01(\t\x12\x15\n\rpersona_reply\x18\x02 \x01(\t\x12,\n\x0bgame_status\x18\x03 \x01(\x0e\x32\x17.vaultsim.v1.GameStatus\x12\x17\n\x0f\x63lues_uncovered\x18\x04 \x03(\t\x12\x19\n\x11judge_explanation\x18\x05 \x01(\t\x12\x12\n\nturn_count\x18\x06 \x01(\x05\"J\n\x0eSessionRequest\x12\x12\n\nsession_id\x18\x01 \x01(\t\x12\x0f\n\x07user_id\x18\x02 \x01(\t\x12\x13\n\x0bscenario_id\x18\x03 \x01(\t\"P\n\x0fSessionResponse\x12\x10\n\x08is_valid\x18\x01 \x01(\x08\x12\x15\n\rerror_message\x18\x02 \x01(\t\x12\x14\n\x0cpersona_role\x18\x03 \x01(\t*6\n\nGameStatus\x12\x0f\n\x0bIN_PROGRESS\x10\x00\x12\x0b\n\x07VICTORY\x10\x01\x12\n\n\x06\x44\x45\x46\x45\x41T\x10\x02\x32\xaa\x01\n\x0f\x44ualAgentEngine\x12I\n\x10ProcessChatEvent\x12\x18.vaultsim.v1.ChatRequest\x1a\x19.vaultsim.v1.ChatResponse0\x01\x12L\n\x0fValidateSession\x12\x1b.vaultsim.v1.SessionRequest\x1a\x1c.vaultsim.v1.SessionResponseB\"Z vaultsim/gateway/internal/rpc/pbb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -32,14 +32,16 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'game_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z vaultsim/gateway/internal/rpc/pb'
+  _globals['_GAMESTATUS']._serialized_start=490
+  _globals['_GAMESTATUS']._serialized_end=544
   _globals['_CHATREQUEST']._serialized_start=27
-  _globals['_CHATREQUEST']._serialized_end=113
-  _globals['_CHATRESPONSE']._serialized_start=116
-  _globals['_CHATRESPONSE']._serialized_end=244
-  _globals['_SESSIONREQUEST']._serialized_start=246
-  _globals['_SESSIONREQUEST']._serialized_end=320
-  _globals['_SESSIONRESPONSE']._serialized_start=322
-  _globals['_SESSIONRESPONSE']._serialized_end=402
-  _globals['_DUALAGENTENGINE']._serialized_start=405
-  _globals['_DUALAGENTENGINE']._serialized_end=575
+  _globals['_CHATREQUEST']._serialized_end=154
+  _globals['_CHATRESPONSE']._serialized_start=157
+  _globals['_CHATRESPONSE']._serialized_end=330
+  _globals['_SESSIONREQUEST']._serialized_start=332
+  _globals['_SESSIONREQUEST']._serialized_end=406
+  _globals['_SESSIONRESPONSE']._serialized_start=408
+  _globals['_SESSIONRESPONSE']._serialized_end=488
+  _globals['_DUALAGENTENGINE']._serialized_start=547
+  _globals['_DUALAGENTENGINE']._serialized_end=717
 # @@protoc_insertion_point(module_scope)
