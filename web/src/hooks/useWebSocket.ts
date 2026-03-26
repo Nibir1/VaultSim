@@ -1,24 +1,29 @@
 // Purpose: Resilient WebSocket hook for bi-directional streaming and Gamified State management
 // Author: Nahasat Nibir (Lead Cloud Architect)
-// Date: 2026-03-19
+// Date: 2026-03-26
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ChatMessage, ChatResponsePayload, GameStatus } from '../types';
 
-export const useWebSocket = (url: string, sessionId: string | null, scenarioId: string | null) => {
+export const useWebSocket = (url: string, sessionId: string | null, scenarioId: string | null, playerName: string | null) => {
     const [isConnected, setIsConnected] = useState(false);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-    // New Detective Game State
     const [cluesUncovered, setCluesUncovered] = useState<string[]>([]);
     const [gameStatus, setGameStatus] = useState<GameStatus>('IN_PROGRESS');
 
     const wsRef = useRef<WebSocket | null>(null);
 
+    // FIX: Automatically scrub the game state clean whenever the session changes or closes
+    useEffect(() => {
+        setMessages([]);
+        setCluesUncovered([]);
+        setGameStatus('IN_PROGRESS');
+    }, [sessionId]);
+
     const connect = useCallback(() => {
         if (!sessionId || wsRef.current?.readyState === WebSocket.OPEN) return;
 
-        // We pass a mock user_id to satisfy the Go JWT middleware (Replace with real Auth in Prod)
         const ws = new WebSocket(`${url}?user_id=local_user_${Math.floor(Math.random() * 1000)}`);
         wsRef.current = ws;
 
@@ -28,7 +33,6 @@ export const useWebSocket = (url: string, sessionId: string | null, scenarioId: 
             try {
                 const data: ChatResponsePayload = JSON.parse(event.data);
 
-                // 1. Handle Persona Reply Stream (Chunk 1)
                 if (data.persona_reply) {
                     setMessages(prev => [...prev, {
                         id: `${data.event_id}-p`,
@@ -38,7 +42,6 @@ export const useWebSocket = (url: string, sessionId: string | null, scenarioId: 
                     }]);
                 }
 
-                // 2. Handle Asynchronous Judge Evaluation Stream (Chunk 2)
                 if (data.judge_explanation) {
                     setMessages(prev => [...prev, {
                         id: `${data.event_id}-j`,
@@ -48,13 +51,23 @@ export const useWebSocket = (url: string, sessionId: string | null, scenarioId: 
                     }]);
                 }
 
-                // 3. Update Detective Game State
                 if (data.clues_uncovered && Array.isArray(data.clues_uncovered)) {
-                    setCluesUncovered(data.clues_uncovered); // React will trigger UI re-renders for newly glowing checkboxes
+                    setCluesUncovered(data.clues_uncovered);
                 }
 
-                if (data.game_status) {
-                    setGameStatus(data.game_status);
+                // Map Protobuf integer Enums to our React Strings
+                if (data.game_status !== undefined) {
+                    const statusMap: Record<number, GameStatus> = {
+                        0: 'IN_PROGRESS',
+                        1: 'VICTORY',
+                        2: 'DEFEAT'
+                    };
+
+                    const mappedStatus = typeof data.game_status === 'number'
+                        ? statusMap[data.game_status]
+                        : data.game_status;
+
+                    setGameStatus(mappedStatus as GameStatus);
                 }
 
             } catch (err) {
@@ -64,7 +77,6 @@ export const useWebSocket = (url: string, sessionId: string | null, scenarioId: 
 
         ws.onclose = () => {
             setIsConnected(false);
-            // Exponential backoff could be implemented here; standard 3s used for simplicity
             setTimeout(connect, 3000);
         };
     }, [url, sessionId]);
@@ -79,9 +91,8 @@ export const useWebSocket = (url: string, sessionId: string | null, scenarioId: 
     }, [connect]);
 
     const sendMessage = (text: string) => {
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !sessionId || !scenarioId) return;
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !sessionId || !scenarioId || !playerName) return;
 
-        // Optimistically add user message to UI
         setMessages(prev => [...prev, {
             id: Math.random().toString(36).substring(7),
             sender: 'user',
@@ -89,10 +100,10 @@ export const useWebSocket = (url: string, sessionId: string | null, scenarioId: 
             timestamp: Date.now()
         }]);
 
-        // Included scenario_id so the Go Gateway can pass it to the Python AI via gRPC
         wsRef.current.send(JSON.stringify({
             session_id: sessionId,
             scenario_id: scenarioId,
+            player_name: playerName,
             message: text
         }));
     };

@@ -1,9 +1,5 @@
 # ai_service/src/api/grpc_server.py
 
-# Purpose: Python gRPC Servicer with Self-Healing Session Logic
-# Author: Nahasat Nibir (Lead Cloud Architect)
-# Date: 2026-03-19
-
 import sys
 from pathlib import Path
 
@@ -13,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import grpc
 import logging
 from uuid import uuid4
+from datetime import datetime, timezone, timedelta # <--- Added timedelta
 
 import src.api.game_pb2 as game_pb2
 import src.api.game_pb2_grpc as game_pb2_grpc
@@ -24,27 +21,27 @@ from src.db.models import ChatHistory, Scenario, GameSession, GameStatusEnum
 logger = logging.getLogger(__name__)
 
 class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
-    """Handles incoming gRPC streams from the Go Gateway and orchestrates the game loop."""
     
     def __init__(self):
         self.persona = PersonaAgent()
         self.judge = JudgeAgent()
 
     def ValidateSession(self, request, context):
-        """Validates the scenario exists and initializes the GameSession in the DB."""
         db = SessionLocal()
         try:
             scenario = db.query(Scenario).filter(Scenario.id == request.scenario_id).first()
             if not scenario:
                 return game_pb2.SessionResponse(is_valid=False, error_message="Scenario not found", persona_role="")
 
-            # Ensure the GameSession exists in Postgres
             session = db.query(GameSession).filter(GameSession.session_id == request.session_id).first()
             if not session:
                 session = GameSession(
                     session_id=request.session_id, 
                     user_id=request.user_id, 
-                    scenario_id=request.scenario_id
+                    scenario_id=request.scenario_id,
+                    player_name=request.player_name or "Anonymous",
+                    # FIX 1: Explicitly set the start time so it's never NULL
+                    start_time=datetime.now(timezone.utc).replace(tzinfo=None) 
                 )
                 db.add(session)
                 db.commit()
@@ -61,121 +58,105 @@ class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
             db.close()
 
     def ProcessChatEvent(self, request, context):
-        """
-        The core game loop. Invokes the Persona, yields the text, then evaluates clues.
-        Includes self-healing logic to handle missing sessions.
-        """
         db = SessionLocal()
         try:
-            # 1. Fetch Scenario and Session
             scenario = db.query(Scenario).filter(Scenario.id == request.scenario_id).first()
             if not scenario:
                 context.abort(grpc.StatusCode.NOT_FOUND, f"Scenario {request.scenario_id} not found.")
 
             session = db.query(GameSession).filter(GameSession.session_id == request.session_id).first()
             
-            # --- SELF-HEALING START ---
-            # If session doesn't exist (due to race condition), create it immediately
             if not session:
-                logger.info(f"Race condition detected: Session {request.session_id} not found. Creating on-the-fly.")
                 session = GameSession(
                     session_id=request.session_id, 
                     user_id=request.user_id, 
                     scenario_id=request.scenario_id,
-                    turn_count=request.turn_count
+                    turn_count=0, 
+                    player_name=request.player_name or "Anonymous",
+                    # FIX 2: Explicitly set start time in the self-healing block too
+                    start_time=datetime.now(timezone.utc).replace(tzinfo=None)
                 )
                 db.add(session)
                 db.commit()
                 db.refresh(session)
-            # --- SELF-HEALING END ---
 
-            # Update Postgres with the authoritative turn count from Redis (via Go Gateway)
-            session.turn_count = request.turn_count
+            session.turn_count += 1
+            active_turn = session.turn_count
 
-            # 2. Log User Message
             user_msg = ChatHistory(
-                session_id=request.session_id,
-                user_id=request.user_id,
-                sender="user",
-                message=request.message,
-                turn_count_at_time=request.turn_count
+                session_id=request.session_id, user_id=request.user_id,
+                sender="user", message=request.message, turn_count_at_time=active_turn
             )
             db.add(user_msg)
             
-            # 3. Invoke Persona
             try:
                 reply_text = self.persona.generate_response(
-                    role=scenario.persona_role,
-                    system_instruction=scenario.system_prompt,
-                    hidden_story=scenario.hidden_story,
-                    user_message=request.message,
-                    turn_count=request.turn_count
+                    role=scenario.persona_role, system_instruction=scenario.system_prompt,
+                    hidden_story=scenario.hidden_story, user_message=request.message,
+                    turn_count=active_turn
                 )
             except Exception as e:
                 logger.error(f"Persona Agent failed: {e}")
                 context.abort(grpc.StatusCode.INTERNAL, "AI Engine Failure")
 
-            # Log Persona Reply
             persona_msg = ChatHistory(
-                session_id=request.session_id,
-                user_id=request.user_id,
-                sender="persona",
-                message=reply_text,
-                turn_count_at_time=request.turn_count
+                session_id=request.session_id, user_id=request.user_id,
+                sender="persona", message=reply_text, turn_count_at_time=active_turn
             )
             db.add(persona_msg)
-            db.commit()
+            db.commit() 
 
             pb_status = game_pb2.GameStatus.IN_PROGRESS
             if session.status == GameStatusEnum.VICTORY:
                 pb_status = game_pb2.GameStatus.VICTORY
 
-            # 4. Stream Persona Reply immediately
             event_id = str(uuid4())
             yield game_pb2.ChatResponse(
-                event_id=event_id,
-                persona_reply=reply_text,
-                game_status=pb_status,
-                clues_uncovered=session.clues_uncovered,
-                judge_explanation="",
-                turn_count=request.turn_count
+                event_id=event_id, persona_reply=reply_text, game_status=pb_status,
+                clues_uncovered=session.clues_uncovered, judge_explanation="", turn_count=active_turn
             )
 
-            # 5. Invoke Judge
             try:
                 evaluation = self.judge.evaluate(
-                    user_message=request.message,
-                    persona_reply=reply_text,
-                    required_clues=scenario.required_clues,
-                    already_uncovered_clues=session.clues_uncovered,
-                    turn_count=request.turn_count
+                    user_message=request.message, persona_reply=reply_text,
+                    required_clues=scenario.required_clues, already_uncovered_clues=session.clues_uncovered,
+                    turn_count=active_turn
                 )
                 
                 new_clues = evaluation["newly_uncovered_clues"]
                 if new_clues:
                     session.clues_uncovered = list(set(session.clues_uncovered + new_clues))
                 
-                if evaluation["game_status"] == "VICTORY":
-                    session.status = GameStatusEnum.VICTORY
+                if evaluation["game_status"] == "VICTORY" and session.status != GameStatusEnum.VICTORY:
                     pb_status = game_pb2.GameStatus.VICTORY
+                    
+                    final_session = db.query(GameSession).filter(GameSession.session_id == request.session_id).first()
+                    if final_session:
+                        final_session.status = GameStatusEnum.VICTORY
+                        safe_end = datetime.now(timezone.utc).replace(tzinfo=None)
+                        
+                        # FIX 3: Bulletproof defensive fallback
+                        if final_session.start_time:
+                            safe_start = final_session.start_time.replace(tzinfo=None)
+                        else:
+                            # If start_time is somehow still null, fallback to prevent crash
+                            safe_start = safe_end - timedelta(seconds=120) 
+                            
+                        final_session.end_time = safe_end
+                        final_session.duration_seconds = int((safe_end - safe_start).total_seconds())
+                        
+                        db.commit() # <--- Guaranteed to save now!
 
                 judge_msg = ChatHistory(
-                    session_id=request.session_id,
-                    user_id=request.user_id,
-                    sender="judge",
-                    message=evaluation["explanation"],
-                    turn_count_at_time=request.turn_count
+                    session_id=request.session_id, user_id=request.user_id,
+                    sender="judge", message=evaluation["explanation"], turn_count_at_time=active_turn
                 )
                 db.add(judge_msg)
-                db.commit()
+                db.commit() 
 
                 yield game_pb2.ChatResponse(
-                    event_id=event_id,
-                    persona_reply="", 
-                    game_status=pb_status,
-                    clues_uncovered=session.clues_uncovered,
-                    judge_explanation=evaluation["explanation"],
-                    turn_count=request.turn_count
+                    event_id=event_id, persona_reply="", game_status=pb_status,
+                    clues_uncovered=session.clues_uncovered, judge_explanation=evaluation["explanation"], turn_count=active_turn
                 )
             except Exception as e:
                 logger.error(f"Judge Agent failed: {e}")
@@ -185,5 +166,40 @@ class DualAgentService(game_pb2_grpc.DualAgentEngineServicer):
             db.rollback()
             logger.error(f"Database error in ProcessChatEvent: {e}")
             context.abort(grpc.StatusCode.INTERNAL, "Database error")
+        finally:
+            db.close()
+
+    def GetLeaderboard(self, request, context):
+        db = SessionLocal()
+        try:
+            limit = request.limit if request.limit > 0 else 10
+            
+            fastest_sessions = (
+                db.query(GameSession)
+                .filter(
+                    GameSession.scenario_id == request.scenario_id,
+                    GameSession.duration_seconds.isnot(None) 
+                )
+                .order_by(GameSession.duration_seconds.asc())
+                .limit(limit)
+                .all()
+            )
+            
+            entries = []
+            for s in fastest_sessions:
+                end_timestamp = int(s.end_time.timestamp()) if s.end_time else 0
+                entries.append(game_pb2.LeaderboardEntry(
+                    player_name=s.player_name or "Anonymous",
+                    duration_seconds=s.duration_seconds,
+                    turn_count=s.turn_count,
+                    session_id=s.session_id,
+                    end_time=end_timestamp
+                ))
+            
+            return game_pb2.LeaderboardResponse(entries=entries)
+            
+        except Exception as e:
+            logger.error(f"Database error in GetLeaderboard: {e}")
+            context.abort(grpc.StatusCode.INTERNAL, "Failed to retrieve leaderboard")
         finally:
             db.close()

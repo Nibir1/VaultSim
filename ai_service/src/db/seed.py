@@ -2,12 +2,13 @@
 
 # Purpose: Database seeding and Schema Sync for Healthcare Security Scenarios
 # Author: Nahasat Nibir (Lead Cloud Architect)
-# Date: 2026-03-19
+# Date: 2026-03-25
 
 import logging
+from datetime import datetime, timezone, timedelta
 from src.db.session import SessionLocal, engine
 # Explicitly import ALL models so Base.metadata is aware of them for create_all
-from src.db.models import Base, Scenario, GameSession, ChatHistory
+from src.db.models import Base, Scenario, GameSession, ChatHistory, GameStatusEnum
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -60,6 +61,14 @@ SCENARIOS = [
     }
 ]
 
+# Initial data to populate the Leaderboard UI on first launch
+MOCK_LEADERBOARD = [
+    {"scenario_id": "wandering_usb", "player_name": "CipherHound", "duration_seconds": 45, "turn_count": 3},
+    {"scenario_id": "wandering_usb", "player_name": "ByteBandit", "duration_seconds": 82, "turn_count": 5},
+    {"scenario_id": "fake_doctor_email", "player_name": "PhishCatcher", "duration_seconds": 115, "turn_count": 6},
+    {"scenario_id": "public_wifi_ehr", "player_name": "PacketSniffer", "duration_seconds": 150, "turn_count": 7},
+]
+
 def seed_db():
     logger.info("Synchronizing database schema (Ensuring all tables exist)...")
     # This will now definitely pick up GameSession and ChatHistory due to the imports above
@@ -69,7 +78,6 @@ def seed_db():
     try:
         logger.info("Seeding scenarios...")
         for data in SCENARIOS:
-            # Check if scenario already exists to avoid duplication errors
             existing = db.query(Scenario).filter(Scenario.id == data["id"]).first()
             if existing:
                 logger.info(f"Updating existing scenario: {data['title']}")
@@ -83,12 +91,35 @@ def seed_db():
                 new_scenario = Scenario(**data)
                 db.add(new_scenario)
         
+        logger.info("Seeding Mock Leaderboard data...")
+        for idx, mock in enumerate(MOCK_LEADERBOARD):
+            # Deterministic ID ensures we don't insert duplicate mock rows on multiple deployments
+            session_id = f"mock-seed-session-00{idx}"
+            existing_session = db.query(GameSession).filter(GameSession.session_id == session_id).first()
+            
+            if not existing_session:
+                now = datetime.now(timezone.utc)
+                start = now - timedelta(seconds=mock["duration_seconds"])
+                
+                new_session = GameSession(
+                    session_id=session_id,
+                    user_id="system_seed_bot",
+                    scenario_id=mock["scenario_id"],
+                    player_name=mock["player_name"],
+                    start_time=start,
+                    end_time=now,
+                    duration_seconds=mock["duration_seconds"],
+                    turn_count=mock["turn_count"],
+                    status=GameStatusEnum.VICTORY
+                )
+                db.add(new_session)
+
         db.commit()
         logger.info("Database seeded successfully! 🚀")
     except Exception as e:
         logger.error(f"Error seeding database: {e}")
         db.rollback()
-        raise e # Force container exit if seeding fails
+        raise e 
     finally:
         db.close()
 

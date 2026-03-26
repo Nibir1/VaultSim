@@ -2,7 +2,7 @@
 
 # Purpose: The isolated LLM-as-a-Judge agent for semantic clue evaluation.
 # Author: Nahasat Nibir (Lead Cloud Architect)
-# Date: 2026-03-19
+# Date: 2026-03-25
 # Dependencies: langchain_openai, langchain_core, pydantic
 
 from langchain_openai import ChatOpenAI
@@ -28,10 +28,9 @@ class JudgeAgent:
         self.llm = ChatOpenAI(
             model=settings.llm_model_judge,
             temperature=0.0,
-            api_key=settings.openai_api_key.get_secret_value(), # Safely unwrap Pydantic SecretStr
+            api_key=settings.openai_api_key.get_secret_value(),
             request_timeout=15.0
         )
-        # Force the LLM to return our specific Pydantic schema
         self.structured_llm = self.llm.with_structured_output(JudgeEvaluation)
         
         self.prompt = ChatPromptTemplate.from_messages([
@@ -63,19 +62,14 @@ class JudgeAgent:
         """
         Executes the LLM chain to evaluate semantic clue matches.
         Enforces a forced win if the turn_count reaches the limit (Pity Timer).
-        
-        Args: user_message, persona_reply (str), required_clues, already_uncovered_clues (List[str]), turn_count (int)
-        Returns: dict with newly_uncovered_clues, explanation, and game_status
-        Complexity: O(1) network call
         """
         
-        # Calculate exactly what the user still needs to find
         remaining_clues = [clue for clue in required_clues if clue not in already_uncovered_clues]
 
-        # Handle the Turn 4 Forced Win (The Pity Timer)
-        if turn_count >= 4:
+        # INCREASED DIFFICULTY: Handle the Turn 7 Forced Win (The Pity Timer)
+        if turn_count >= 7:
             return {
-                "newly_uncovered_clues": remaining_clues, # Grant all remaining clues automatically
+                "newly_uncovered_clues": remaining_clues, 
                 "explanation": "[JUDGE OVERRIDE] Maximum turn count reached. The Persona has confessed the full story. All remaining clues automatically awarded.",
                 "game_status": "VICTORY"
             }
@@ -88,17 +82,14 @@ class JudgeAgent:
                 "game_status": "VICTORY"
             }
 
-        # Format the remaining clues as a bulleted string to help the LLM parse them strictly
         formatted_remaining = "\n".join([f"- {clue}" for clue in remaining_clues])
 
-        # Invoke the LangChain evaluation
         result: JudgeEvaluation = self.chain.invoke({
             "remaining": formatted_remaining,
             "user_message": user_message,
             "persona_reply": persona_reply
         })
 
-        # Calculate if this specific turn triggered the win condition naturally
         total_uncovered_after_this_turn = len(already_uncovered_clues) + len(result.newly_uncovered_clues)
         is_victory = total_uncovered_after_this_turn >= len(required_clues)
 

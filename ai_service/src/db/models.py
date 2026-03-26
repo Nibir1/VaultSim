@@ -2,7 +2,7 @@
 
 # Purpose: SQLAlchemy 2.0 ORM models for Gamified Scenarios, Sessions, and History.
 # Author: Nahasat Nibir (Lead Cloud Architect)
-# Date: 2026-03-19
+# Date: 2026-03-25
 # Dependencies: sqlalchemy
 
 from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, Enum, JSON
@@ -31,23 +31,28 @@ class Scenario(Base):
     hidden_story = Column(Text, nullable=False)
     
     # JSON array of strings: The specific questions/facts the user must uncover
-    # e.g., ["Was it a USB stick?", "Did it contain sensitive info?"]
     required_clues = Column(JSON, nullable=False, default=list)
 
     # Relationships
     sessions = relationship("GameSession", back_populates="scenario")
 
 class GameSession(Base):
-    """The 'Save File' for a user's playthrough. Tracks clues, turns, and win states."""
+    """The 'Save File' for a user's playthrough. Tracks clues, turns, win states, and Leaderboard timing."""
     __tablename__ = 'game_sessions'
 
     session_id = Column(String(100), primary_key=True)
     user_id = Column(String(100), index=True, nullable=False)
     scenario_id = Column(String(50), ForeignKey('scenarios.id'), nullable=False)
     
+    # Leaderboard & Identity Tracking
+    player_name = Column(String(100), nullable=True, default="Anonymous")
+    start_time = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    end_time = Column(DateTime, nullable=True)
+    duration_seconds = Column(Integer, index=True, nullable=True) # Indexed for fast O(1) leaderboard sorting
+    
     # State Tracking (Synced via gRPC)
     turn_count = Column(Integer, default=0, nullable=False)
-    clues_uncovered = Column(JSON, default=list, nullable=False) # e.g., ["Was it a USB stick?"]
+    clues_uncovered = Column(JSON, default=list, nullable=False) 
     status = Column(Enum(GameStatusEnum), default=GameStatusEnum.IN_PROGRESS, nullable=False)
     
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
@@ -67,7 +72,7 @@ class ChatHistory(Base):
     sender = Column(String(20), nullable=False) # 'user', 'persona', or 'judge'
     message = Column(Text, nullable=False)
     
-    # Optional: Track the turn count at the moment this message was sent
+    # Track the turn count at the moment this message was sent
     turn_count_at_time = Column(Integer, default=0)
     
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc))

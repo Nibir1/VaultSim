@@ -2,7 +2,7 @@
 
 // Purpose: Robust WebSocket handler with gRPC session validation and state management
 // Author: Nahasat Nibir (Lead Cloud Architect)
-// Date: 2026-03-19
+// Date: 2026-03-25
 
 package handler
 
@@ -32,6 +32,7 @@ var upgrader = websocket.Upgrader{
 type ChatMessage struct {
 	SessionID  string `json:"session_id"`
 	ScenarioID string `json:"scenario_id"`
+	PlayerName string `json:"player_name"` // Added to track leaderboard identity
 	Message    string `json:"message"`
 }
 
@@ -65,13 +66,13 @@ func HandleWebSocket(c *gin.Context, aiClient *rpc.AIClient, redisStore *storage
 		}
 
 		// 2. CRITICAL FIX: Ensure Session exists in Postgres via ValidateSession
-		// This prevents the 'NoneType' error on the Python side
 		if !initializedSessions[msg.SessionID] {
 			valCtx, valCancel := context.WithTimeout(ctx, 5*time.Second)
 			valResp, valErr := aiClient.Engine.ValidateSession(valCtx, &pb.SessionRequest{
 				SessionId:  msg.SessionID,
 				ScenarioId: msg.ScenarioID,
 				UserId:     userID,
+				PlayerName: msg.PlayerName, // Pass the player's name to the Python backend
 			})
 			valCancel()
 

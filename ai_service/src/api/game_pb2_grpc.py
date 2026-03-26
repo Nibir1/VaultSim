@@ -26,7 +26,7 @@ if _version_not_supported:
 
 
 class DualAgentEngineStub(object):
-    """DualAgentEngine handles the conversational AI and isolated judging
+    """DualAgentEngine handles the conversational AI, isolated judging, and leaderboard data
     """
 
     def __init__(self, channel):
@@ -45,10 +45,15 @@ class DualAgentEngineStub(object):
                 request_serializer=game__pb2.SessionRequest.SerializeToString,
                 response_deserializer=game__pb2.SessionResponse.FromString,
                 _registered_method=True)
+        self.GetLeaderboard = channel.unary_unary(
+                '/vaultsim.v1.DualAgentEngine/GetLeaderboard',
+                request_serializer=game__pb2.LeaderboardRequest.SerializeToString,
+                response_deserializer=game__pb2.LeaderboardResponse.FromString,
+                _registered_method=True)
 
 
 class DualAgentEngineServicer(object):
-    """DualAgentEngine handles the conversational AI and isolated judging
+    """DualAgentEngine handles the conversational AI, isolated judging, and leaderboard data
     """
 
     def ProcessChatEvent(self, request, context):
@@ -60,7 +65,14 @@ class DualAgentEngineServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def ValidateSession(self, request, context):
-        """Validates a scenario session initialization
+        """Validates a scenario session initialization and registers the player's name
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetLeaderboard(self, request, context):
+        """Fetches the top fastest completion times for a specific scenario
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -79,6 +91,11 @@ def add_DualAgentEngineServicer_to_server(servicer, server):
                     request_deserializer=game__pb2.SessionRequest.FromString,
                     response_serializer=game__pb2.SessionResponse.SerializeToString,
             ),
+            'GetLeaderboard': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetLeaderboard,
+                    request_deserializer=game__pb2.LeaderboardRequest.FromString,
+                    response_serializer=game__pb2.LeaderboardResponse.SerializeToString,
+            ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
             'vaultsim.v1.DualAgentEngine', rpc_method_handlers)
@@ -88,7 +105,7 @@ def add_DualAgentEngineServicer_to_server(servicer, server):
 
  # This class is part of an EXPERIMENTAL API.
 class DualAgentEngine(object):
-    """DualAgentEngine handles the conversational AI and isolated judging
+    """DualAgentEngine handles the conversational AI, isolated judging, and leaderboard data
     """
 
     @staticmethod
@@ -135,6 +152,33 @@ class DualAgentEngine(object):
             '/vaultsim.v1.DualAgentEngine/ValidateSession',
             game__pb2.SessionRequest.SerializeToString,
             game__pb2.SessionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetLeaderboard(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/vaultsim.v1.DualAgentEngine/GetLeaderboard',
+            game__pb2.LeaderboardRequest.SerializeToString,
+            game__pb2.LeaderboardResponse.FromString,
             options,
             channel_credentials,
             insecure,
