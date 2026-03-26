@@ -1,6 +1,6 @@
 // Purpose: Main React layout, gamified state orchestration, and Victory Modal
 // Author: Nahasat Nibir (Lead Cloud Architect)
-// Date: 2026-03-25
+// Date: 2026-03-26
 
 import React, { useState, useEffect } from 'react';
 import { ScenarioDashboard } from './components/ScenarioDashboard';
@@ -35,18 +35,22 @@ const App: React.FC = () => {
         setFinalTime(null);
     };
 
-    // Calculate final time when victory is achieved
+    // Calculate final time when victory is achieved AND Auto-Scroll
     useEffect(() => {
-        if (gameStatus === 'VICTORY' && startTime && !finalTime) {
-            setFinalTime(Math.floor((Date.now() - startTime) / 1000));
+        if (gameStatus === 'VICTORY') {
+            if (startTime && !finalTime) {
+                setFinalTime(Math.floor((Date.now() - startTime) / 1000));
+            }
+            // POLISH: Smoothly glide the user back to the top of the dashboard
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         }
     }, [gameStatus, startTime, finalTime]);
 
     return (
         <div className="h-screen flex flex-col p-4 md:p-6 lg:p-8 bg-slate-950 text-slate-200">
-            {/* Victory Modal Overlay */}
+            {/* Victory Modal Overlay - POLISH: Changed 'absolute' to 'fixed' to lock it to the viewport */}
             {gameStatus === 'VICTORY' && (
-                <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
                     <div className="bg-slate-900 border border-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.3)] rounded-2xl p-8 max-w-lg text-center transform animate-[scale-in_0.3s_ease-out]">
                         <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-emerald-900/50 mb-6">
                             <svg className="h-12 w-12 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -67,6 +71,8 @@ const App: React.FC = () => {
                             onClick={() => {
                                 setActiveScenario(null);
                                 setSessionId(null);
+                                // Scroll to top again just in case, ensuring a clean slate
+                                window.scrollTo({ top: 0, behavior: 'instant' });
                             }}
                             className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-8 rounded-lg transition-colors w-full tracking-wide"
                         >
